@@ -58,6 +58,16 @@
       "Bash(git push * -f *)",
       "Bash(git push * main)",
       "Bash(git push * main *)",
+      "Bash(git push * +*)",
+      "Bash(git push * *:main)",
+      "Bash(git push * *:refs/heads/main)",
+      "Bash(git push --mirror *)",
+      "Bash(git push * --mirror *)",
+      "Bash(git push * --mirror)",
+      "Bash(git push * master)",
+      "Bash(git push * master *)",
+      "Bash(git push * production)",
+      "Bash(git push * production *)",
       "Bash(git reset --hard *)",
       "Bash(git clean *)",
       "Bash(git branch -D *)",
@@ -81,6 +91,16 @@
   },
   "hooks": {
     "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-git-push.mjs\"",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "matcher": "Write|Edit",
         "hooks": [

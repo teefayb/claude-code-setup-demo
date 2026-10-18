@@ -20,6 +20,7 @@ This is how our team uses Claude Code in this repo. Read it once. The short vers
 | ----------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Project memory    | `CLAUDE.md`                             | Commands, layout, conventions and "never" list for this repo                                                                       |
 | Permissions       | `.claude/settings.json` → `permissions` | Allows test/lint/build without prompts; asks before push, installs and workflow edits; denies secrets, destructive git and deploys |
+| Push guard hook   | `.claude/hooks/guard-git-push.mjs`      | Blocks force pushes and pushes to `main`/`master`/`production`, however the command is written                                     |
 | Secret guard hook | `.claude/hooks/guard-secrets.mjs`       | Blocks writing `.env*`, key files, or content that looks like a live credential                                                    |
 | Format hook       | `.claude/hooks/format-on-edit.mjs`      | Runs Prettier and `eslint --fix` on every file Claude edits; shows remaining lint errors to Claude so it fixes them                |
 | MCP               | `.mcp.json`                             | Playwright: Claude can open the running app, click through it and take screenshots                                                 |
@@ -100,8 +101,26 @@ force push and pushing to `main`; `git reset --hard`, `git clean`, `git branch -
 Know the limits:
 
 - Bash deny rules match the command as written. They stop the normal form of a command, not
-  every way to run it (`bash -c '...'`, a script). Branch protection on `main` and keeping
-  deploy credentials out of developer machines are the real backstops.
+  every way to run it. We tested 22 ways to force-push or push to `main`
+  ([results](bypass-test-results.md)): the deny rules alone hard-blocked 7. The other 15 fell
+  through to a permission prompt, one "yes" (or one auto-approve mode) away from running.
+- The `guard-git-push` hook closes that gap for pushes. It reads the whole command and blocks
+  force flags (`-f`, `--force*`, `+ref`, `--delete`, `--mirror`, `--all`) and any push whose
+  target is `main`, `master` or `production`, including when the push is chained (`&&`, `;`,
+  `|`), wrapped (`git -C`, `git -c`, env vars, `/usr/bin/git`, `xargs`, `timeout`), aliased
+  (`git -c alias.p=push`), nested in `sh -c`, `bash -c`, `eval` or `$(...)`, or inside a local
+  script run with `bash file.sh`, `source` or `./file.sh`. A bare `git push` is blocked when
+  the current branch is protected (or can't be determined, e.g. detached HEAD).
+- What the hook does **not** protect against:
+  - Commands that don't go through Claude's Bash tool: your own terminal, git GUIs, CI jobs.
+  - Indirection it can't read: `npm run <script>`, a Makefile target, a compiled binary, a
+    script that downloads or builds the push command at runtime, or a script edited after
+    the check ran.
+  - Pushes made without the `git` CLI (GitHub API via `gh api` or `curl`, other git clients).
+  - Anyone who edits or removes the hook: it lives in the repo like any other code.
+    So branch protection on `main` (required review, no force push) and keeping deploy
+    credentials out of developer machines are still the real backstops. The hook makes the
+    safe path the default inside Claude Code; it is not a security boundary.
 - For stronger isolation, turn on Claude Code's sandbox (`/sandbox`), which enforces file and
   network limits at the OS level.
 - The secret guard catches common key formats and hard-coded `apiKey = "..."` assignments.
@@ -111,7 +130,8 @@ Know the limits:
 
 - Changes to `CLAUDE.md`, skills, agents, hooks or `.claude/settings.json` go through a PR
   like any other code. Tag the person who owns the setup.
-- Hook tests live in `.claude/hooks/*.test.mjs` and run with `npm test`.
+- Hook tests live in `.claude/hooks/*.test.mjs` and run with `npm test`. To add a protected
+  branch, edit `PROTECTED` in `guard-git-push.mjs` and add a deny rule for it.
 - Keep `CLAUDE.md` short. If a rule only matters for one workflow, put it in that skill.
 - If Claude keeps making the same mistake, add one line to `CLAUDE.md` or the relevant skill,
   and mention it in the PR.
