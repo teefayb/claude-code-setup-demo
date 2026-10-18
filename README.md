@@ -4,7 +4,7 @@ This repo shows what you get when you buy a **Claude Code team setup**. It is a 
 realistic Next.js app with the **Premium** package applied, so you can see every file,
 read every rule, and check that it works before you order.
 
-> Built by **@your-handle**. Order on Fiverr, Upwork or Contra (links in the profile).
+> Built by **@teefayb**. Order on Fiverr, Upwork or Contra (links in the profile).
 
 ---
 
