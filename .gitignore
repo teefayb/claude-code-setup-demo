@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# env files: real values never live in the repo
+.env
+.env.*
+!.env.example
+
+# local data written by `npm run dev`
+data/links.local.json
