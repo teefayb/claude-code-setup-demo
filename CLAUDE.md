@@ -41,5 +41,5 @@ data layer, Vitest. No database, no auth (internal tool behind the company VPN).
 
 ## Team workflows
 
-Skills: `/add-api-route`, `/change-data-model`, `/triage-test`, `/pr-description`.
-MCP: `playwright` (drive the running app in a headless browser).
+Skills: `/add-api-route`, `/change-data-model`, `/triage-test`, `/pr-description`, `/review`.
+Subagents: `code-reviewer`, `test-writer`, `docs-writer`. See `docs/team-playbook.md`.
