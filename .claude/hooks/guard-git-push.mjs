@@ -29,10 +29,22 @@ const WRAPPERS = new Set([
 ]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
 // git global options that take a separate value argument
-const GIT_OPTS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"]);
+const GIT_OPTS_WITH_VALUE = new Set([
+  "-C",
+  "-c",
+  "--config-env",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+]);
 // git push options that take a separate value argument
 const PUSH_OPTS_WITH_VALUE = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
 const MAX_DEPTH = 4;
+const KNOWN_SUBCOMMANDS = new Set(
+  "add am apply archive bisect blame branch bundle cat-file check-ignore checkout cherry cherry-pick clean clone commit config count-objects describe diff diff-files diff-index diff-tree fetch for-each-ref format-patch fsck gc grep hash-object help init lfs log ls-files ls-remote ls-tree merge merge-base mv name-rev notes pull push range-diff rebase reflog remote reset restore rev-list rev-parse revert rm send-pack http-push shortlog show show-ref sparse-checkout stash status submodule switch symbolic-ref tag update-index update-ref var version worktree".split(
+    " ",
+  ),
+);
 
 /** Split a command line into simple commands (arrays of words), honouring quotes. */
 export function splitCommands(text) {
@@ -117,6 +129,25 @@ function currentBranch(cwd) {
   }
 }
 
+/** Look up an alias defined in git config (e.g. `alias.p = push -f origin main`). */
+function configAlias(cwd, name) {
+  try {
+    return execFileSync("git", ["config", "--get", `alias.${name}`], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 3000,
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+// Options and env vars that change which config or repository a push uses.
+const PUSH_REDIRECT_OPTS =
+  /^(-c|--config-env(=.*)?|--git-dir(=.*)?|--work-tree(=.*)?|--namespace(=.*)?)$/;
+const PUSH_REDIRECT_ENV = /\bGIT_(CONFIG\w*|DIR|WORK_TREE|NAMESPACE|COMMON_DIR)\b/;
+
 const isProtected = (ref) => PROTECTED.includes(ref.replace(/^refs\/heads\//, ""));
 
 /** @returns {string | null} reason to block a single `git ...` invocation */
@@ -124,6 +155,7 @@ function checkGit(words, ctx) {
   let i = 1;
   let gitCwd = ctx.cwd;
   const aliases = { ...ctx.aliases };
+  let redirect = null;
   while (i < words.length && words[i].startsWith("-")) {
     const opt = words[i];
     if (GIT_OPTS_WITH_VALUE.has(opt)) {
@@ -133,18 +165,37 @@ function checkGit(words, ctx) {
         const m = /^alias\.([^=]+)=(.*)$/.exec(value);
         if (m) aliases[m[1]] = m[2];
       }
+      if (opt !== "-C") redirect ??= opt;
       i += 2;
-    } else i++;
+    } else {
+      if (PUSH_REDIRECT_OPTS.test(opt)) redirect ??= opt.split("=")[0];
+      i++;
+    }
   }
   let sub = words[i];
   let args = words.slice(i + 1);
-  if (sub && aliases[sub]) {
-    const expansion = aliases[sub].replace(/^!\s*git\s+/, "").replace(/^!/, "");
-    const [first, ...rest] = expansion.split(/\s+/).filter(Boolean);
+  for (let hops = 0; sub && !KNOWN_SUBCOMMANDS.has(sub); hops++) {
+    const expansion = aliases[sub] ?? configAlias(gitCwd, sub);
+    if (!expansion) break;
+    if (hops >= 5) return "alias chain too deep to check";
+    if (expansion.trimStart().startsWith("!")) {
+      // Shell alias: check the whole body as a command line.
+      const body = expansion.trimStart().slice(1);
+      return ctx.check(`${body} ${args.join(" ")}`, gitCwd);
+    }
+    const [first, ...rest] = splitCommands(expansion)[0] ?? [];
     sub = first;
     args = [...rest, ...args];
   }
+  // `git config [set|--global|...] alias.x VALUE` (also via an alias): remember x for later commands
+  if (sub === "config") {
+    const k = args.findIndex((a) => /^alias\./.test(a));
+    if (k >= 0 && args[k + 1]) ctx.aliases[args[k].slice(6)] = args[k + 1];
+  }
+  if (sub === "send-pack" || sub === "http-push")
+    return `\`git ${sub}\` updates remote refs directly; use \`git push origin <branch>\``;
   if (sub !== "push") return null;
+  if (redirect) return `\`${redirect}\` on a push changes which config or repository git uses`;
 
   const positional = [];
   let force = false;
@@ -166,11 +217,14 @@ function checkGit(words, ctx) {
   if (everything) return `\`git push ${everything}\` would push protected branches`;
 
   const refspecs = positional.slice(1);
+  if (!refspecs.length && args.includes("--tags") && !args.includes("--follow-tags")) return null;
   if (!refspecs.length) {
     const branch = currentBranch(gitCwd);
     if (!branch || isProtected(branch))
       return `\`git push\` with no branch pushes the current branch (${branch ?? "unknown"})`;
-    return null;
+    // Without a refspec, git decides what to push from config (push refspecs, push.default,
+    // mirror, include files...). Require it on the command line instead of second-guessing git.
+    return `name the branch explicitly: \`git push ${positional[0] ?? "origin"} ${branch}\``;
   }
   for (const spec of refspecs) {
     if (spec.startsWith("+")) return `"${spec}" is a force push`;
@@ -191,17 +245,32 @@ export function checkCommand(command, cwd = process.cwd(), depth = 0, aliases = 
   if (!command) return null;
   if (depth > MAX_DEPTH)
     return /\bpush\b/.test(command) ? "command nesting too deep to check" : null;
+  // GIT_CONFIG*/GIT_DIR change which config or repo every later git call uses, including inside
+  // bash -c, eval and scripts. Too much to follow, so fail closed when they're set alongside git.
+  if (
+    PUSH_REDIRECT_ENV.test(command) &&
+    /\bgit\b|\b(ba|z|da|k)?sh\b|\beval\b|\bsource\b|\.sh\b/.test(command)
+  )
+    return "GIT_CONFIG*/GIT_DIR environment overrides together with git or a script can't be checked";
   for (const raw of splitCommands(command)) {
     const words = unwrap(raw);
     if (!words.length) continue;
     const name = path.basename(words[0]);
+    // 6: follow `cd` so branch and alias lookups use the right repo
+    if (name === "cd") {
+      if (words[1] && !/^[~-]/.test(words[1])) cwd = path.resolve(cwd, words[1]);
+      else return /\bpush\b|\bgit\b/.test(command) ? "can't follow `cd` to that directory" : null;
+      continue;
+    }
 
     // git config alias.x push  ->  remember the alias for later commands in this line
     if (name === "git") {
-      const cfg = words.indexOf("config");
-      const m = cfg > 0 ? /^alias\.(.+)$/.exec(words[cfg + 1] ?? "") : null;
-      if (m && words[cfg + 2]) aliases[m[1]] = words[cfg + 2];
-      const reason = checkGit(words, { cwd, aliases });
+      // Config or repo redirected through the environment, anywhere on the line (incl. earlier `export`)
+      const reason = checkGit(words, {
+        cwd,
+        aliases,
+        check: (cmd, dir) => checkCommand(cmd, dir, depth + 1, aliases),
+      });
       if (reason) return reason;
       continue;
     }

@@ -86,7 +86,9 @@
       "Bash(gh workflow run *)",
       "Bash(psql *)",
       "Bash(npx prisma migrate deploy *)",
-      "Bash(npx prisma db push *)"
+      "Bash(npx prisma db push *)",
+      "Edit(**/.git/**)",
+      "Write(**/.git/**)"
     ]
   },
   "hooks": {

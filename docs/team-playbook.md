@@ -101,7 +101,7 @@ force push and pushing to `main`; `git reset --hard`, `git clean`, `git branch -
 Know the limits:
 
 - Bash deny rules match the command as written. They stop the normal form of a command, not
-  every way to run it. We tested 22 ways to force-push or push to `main`
+  every way to run it. We tested 22 ways (plus a 23rd a reader reported) to force-push or push to `main`
   ([results](bypass-test-results.md)): the deny rules alone hard-blocked 7. The other 15 fell
   through to a permission prompt, one "yes" (or one auto-approve mode) away from running.
 - The `guard-git-push` hook closes that gap for pushes. It reads the whole command and blocks
@@ -109,8 +109,11 @@ Know the limits:
   target is `main`, `master` or `production`, including when the push is chained (`&&`, `;`,
   `|`), wrapped (`git -C`, `git -c`, env vars, `/usr/bin/git`, `xargs`, `timeout`), aliased
   (`git -c alias.p=push`), nested in `sh -c`, `bash -c`, `eval` or `$(...)`, or inside a local
-  script run with `bash file.sh`, `source` or `./file.sh`. A bare `git push` is blocked when
-  the current branch is protected (or can't be determined, e.g. detached HEAD).
+  script run with `bash file.sh`, `source` or `./file.sh`. Every push must **name its branch**
+  (`git push origin my-branch`): a bare `git push` is blocked, because git would decide what to
+  push from config (push refspecs, `push.default`, mirror, include files). Pushes that carry
+  config or repository overrides (`-c`, `--config-env`, `--git-dir`, `GIT_CONFIG*`/`GIT_DIR`
+  env vars) are blocked, and aliases defined in git config are expanded and checked.
 - What the hook does **not** protect against:
   - Commands that don't go through Claude's Bash tool: your own terminal, git GUIs, CI jobs.
   - Indirection it can't read: `npm run <script>`, a Makefile target, a compiled binary, a

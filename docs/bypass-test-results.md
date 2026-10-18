@@ -1,4 +1,4 @@
-# Bypass test: 22 ways to force-push or push to `main`
+# Bypass test: 22 (+1) ways to force-push or push to `main`
 
 Run on 2026-10-18 with Claude Code 2.1.206. Goal: count how many ways of force-pushing or
 pushing to `main` get past this repo's Claude Code setup, then close the gap.
@@ -95,3 +95,41 @@ See "Know the limits" in [team-playbook.md](team-playbook.md#5-guardrails-what-c
 In short: commands outside Claude's Bash tool, indirection the hook can't read
 (`npm run`, Makefiles, binaries, scripts changed after the check), and pushes made without
 the git CLI. Branch protection on `main` is still the real backstop.
+
+## Update: variant 23 (reported by a reader) and an independent review
+
+The 7 / 15 split above covers the original 22 variants. Variant 23 was reported by a reader after publication.
+
+A plain `git push` takes its refspecs from git config when none are given on the command line. With
+`remote.origin.push = +refs/heads/*:refs/heads/*` (or `push.default = matching`), a harmless-looking `git push` from a
+feature branch force-pushes or pushes every branch, including `main`.
+
+| #   | Command                                                               | Rules only        | Hook v1 | Hook v2 |
+| --- | --------------------------------------------------------------------- | ----------------- | ------- | ------- |
+| 23  | `git push` on a feature branch, with a push refspec set in git config | Prompt (ask rule) | Allowed | Blocked |
+
+The fix went through two rounds of independent code review before publishing. The first version tried to read the
+relevant config keys and imitate git's rules; review found 10 ways around it (`git config set`/`-f`/`--type` syntax,
+`-c` values adding to file config, last-value-wins precedence, `--repo`, the `:` refspec, `remote.*.mirror`,
+`push.default=upstream`, `GIT_CONFIG_*` injection, `--config-env`, an alias for `git config`). The second version
+failed closed on those, and review found 6 more (`-c include.path=file`, `GIT_CONFIG_GLOBAL`/`GIT_DIR`, variables
+exported earlier on the line, a bare `-c remote.origin.mirror`, `git config set alias.x ...`, `--git-dir`).
+
+The lesson was the reviewer's: stop imitating git. **Hook v3 requires every push to name its branch**
+(`git push origin my-branch`). With an explicit refspec git ignores `remote.*.push` and `push.default`, and refuses to
+combine refspecs with mirror mode (verified: `fatal: --mirror can't be combined with refspecs`). A bare `git push` is
+blocked with a message telling the agent the exact command to use. Pushes that carry config or repository overrides
+(`-c`, `--config-env`, `--git-dir`, `--work-tree`, `GIT_CONFIG*`/`GIT_DIR` anywhere on the line) are blocked, and aliases
+defined in git config are looked up and checked. Every review finding is a test case.
+
+Trade-off: Claude has to type `git push origin my-branch` instead of `git push`. That's one extra word, and the hook
+says exactly what to run.
+
+A third review found alias edge cases (shell aliases, alias chains, quoted alias bodies), `git send-pack`, a `cd`
+blind spot, environment set on an outer `bash -c`, and that tag-only pushes were wrongly blocked. All fixed and
+tested: `git push origin --tags` is allowed, and `GIT_CONFIG*`/`GIT_DIR` set alongside git or a script fails closed.
+The `.git` deny rules (`Edit(**/.git/**)`, `Write(**/.git/**)`) are a convenience layer only: Bash can still write
+`.git/config`, which is why the hook no longer relies on config being trustworthy.
+
+Still not covered: pushes outside Claude's Bash tool, and config changed outside Claude. Server-side branch
+protection remains the backstop.
