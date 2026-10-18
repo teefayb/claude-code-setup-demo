@@ -12,3 +12,7 @@ next-env.d.ts
 
 # local data written by `npm run dev`
 data/links.local.json
+
+# personal Claude Code overrides
+.claude/settings.local.json
+CLAUDE.local.md
