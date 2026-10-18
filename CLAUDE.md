@@ -29,8 +29,8 @@ data layer, Vitest. No database, no auth (internal tool behind the company VPN).
 - Tests sit next to the code (`foo.ts` → `foo.test.ts`). Route tests call the exported
   handlers with a `Request`; no HTTP server.
 - Data files already exist in the wild. A breaking change to the stored shape bumps `version`
-  and upgrades old files on read in `store.ts`; update `seed.json` too.
-- Run `npm run format` after editing; CI fails on unformatted files.
+  and upgrades old files on read in `store.ts`; update `seed.json` too (see `/change-data-model`).
+- A hook runs Prettier + `eslint --fix` after every edit; fix any lint errors it reports.
 
 ## Never
 
@@ -38,3 +38,8 @@ data layer, Vitest. No database, no auth (internal tool behind the company VPN).
 - Force-push, push to `main`, or run `git reset --hard` / `git clean`. Work on a branch and open a PR.
 - Run deploy commands (`vercel`, `netlify`, `fly`, `npm publish`) — CI/CD deploys.
 - Commit `data/links.local.json` or edit `data/seed.json` to make a test pass.
+
+## Team workflows
+
+Skills: `/add-api-route`, `/change-data-model`, `/triage-test`, `/pr-description`.
+MCP: `playwright` (drive the running app in a headless browser).

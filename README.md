@@ -29,6 +29,12 @@ This repo ships a shared Claude Code setup:
   installs ask first; `.env*` and key files can't be read; force push, push to `main`,
   `reset --hard`, `rm -rf` and deploy commands are blocked.
 
+- Skills: `/add-api-route`, `/change-data-model`, `/triage-test`, `/pr-description`.
+- Hooks: a secret guard blocks writing `.env*`, key files or credential-looking content;
+  every edit is run through Prettier and `eslint --fix`.
+- MCP: `playwright` lets Claude open the running app and click through it. Approve it on
+  first run; run `npx playwright install chromium` if the browser is missing.
+
 Start `claude` in the repo root and accept the workspace-trust prompt once (shared allow
 rules apply only after that). Personal tweaks go in `.claude/settings.local.json` or
 `CLAUDE.local.md`, both gitignored.
